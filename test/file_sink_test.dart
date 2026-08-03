@@ -38,12 +38,12 @@ void main() {
       expect(file.existsSync(), isTrue);
 
       final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-      final metadata =
-          (json['events'] as List).first['metadata'] as Map<String, dynamic>;
+      final metadata = (json['events'] as List).first['metadata']
+          as Map<String, dynamic>;
 
-      expect(metadata['email'], '***REDACTED***');
-      expect(metadata['password'], '***REDACTED***');
-      expect(metadata['token'], '***REDACTED***');
+      expect(metadata['email'], PiiMasker.redacted);
+      expect(metadata['password'], PiiMasker.redacted);
+      expect(metadata['token'], PiiMasker.redacted);
       expect(trace.events, hasLength(1));
     });
 
@@ -58,7 +58,7 @@ void main() {
         session.info('event-$i', metadata: {'index': i, 'status': i % 2});
       }
 
-      expect(sink.bufferedCount, 1200);
+      expect(sink.writeCount, 1200);
 
       final trace = await session.end();
       await sink.flush();
@@ -95,7 +95,7 @@ void main() {
       await sink.flush();
 
       expect(trace.events, hasLength(1000));
-      expect(sink.bufferedCount, 1000);
+      expect(sink.writeCount, 1000);
 
       final file = File('${tempDir.path}/async-io.tracer.json');
       final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
@@ -112,8 +112,14 @@ void main() {
       }) as Map;
 
       expect(masked['username'], 'luke');
-      expect(masked['api_key'], '***REDACTED***');
-      expect(masked['note'], contains('***REDACTED***'));
+      expect(masked['api_key'], PiiMasker.redacted);
+      expect(masked['note'], contains(PiiMasker.redacted));
+    });
+
+    test('does not over-match substrings like author', () {
+      final masked = PiiMasker.mask({'author': 'luke', 'status': 200}) as Map;
+      expect(masked['author'], 'luke');
+      expect(masked['status'], 200);
     });
   });
 }

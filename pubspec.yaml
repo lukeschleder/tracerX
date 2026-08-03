@@ -1,7 +1,11 @@
 name: tracer_x
-description: Execution trace recording, golden-master diffing, and pluggable logging sinks for Dart.
-version: 0.2.0
+description: >
+  Execution trace recording and golden-master Fix Receipts for Dart —
+  capture ordered state checkpoints, persist .tracer.json, and diff buggy vs fixed flows.
+version: 0.2.1
 repository: https://github.com/example/tracer_x
+homepage: https://github.com/example/tracer_x
+issue_tracker: https://github.com/example/tracer_x/issues
 
 environment:
   sdk: ^3.0.0
@@ -9,3 +13,9 @@ environment:
 dev_dependencies:
   lints: ^5.0.0
   test: ^1.25.0
+
+topics:
+  - logging
+  - tracing
+  - debugging
+  - testing

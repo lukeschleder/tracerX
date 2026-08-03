@@ -1,8 +1,9 @@
 import 'log_level.dart';
 import 'trace_event.dart';
 
-/// A single log event emitted by [Tracer] or [TracerSession].
+/// A single log event emitted by [Tracer] or [TracerSession] toward a [LogSink].
 class LogRecord {
+  /// Creates an immutable log record.
   const LogRecord({
     required this.level,
     required this.message,
@@ -29,11 +30,13 @@ class LogRecord {
   final Object? error;
   final StackTrace? stackTrace;
 
+  /// `file:line` when both are present, otherwise empty.
   String get location {
     if (file == null || line == null) return '';
     return '$file:$line';
   }
 
+  /// `Class.method` when available.
   String get qualifiedName {
     if (className != null && methodName != null) {
       return '$className.$methodName';
@@ -41,6 +44,7 @@ class LogRecord {
     return methodName ?? className ?? '';
   }
 
+  /// Adapts a recorded [TraceEvent] into a sink-facing [LogRecord].
   factory LogRecord.fromTraceEvent(TraceEvent event, {String? tag}) =>
       LogRecord(
         level: event.level,

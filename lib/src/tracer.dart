@@ -4,24 +4,36 @@ import 'log_sink.dart';
 import 'console_sink.dart';
 import 'stack_trace_parser.dart';
 
-/// Lightweight logger with automatic caller location and pluggable output.
+/// Fire-and-forget logger with automatic caller location and pluggable sinks.
+///
+/// Prefer [TracerSession] when you need exportable traces for [TracerDiff].
+/// Use [Tracer] for day-to-day diagnostic logging.
 class Tracer {
+  /// Creates a logger that writes to [sink] (defaults to [ConsoleSink]).
   Tracer({
     LogSink? sink,
     this.tag,
     this.minLevel = LogLevel.debug,
   }) : sink = sink ?? ConsoleSink();
 
+  /// Destination for each log record.
   final LogSink sink;
+
+  /// Optional tag rendered as `[tag]` in console output.
   final String? tag;
+
+  /// Events below this level are discarded.
   final LogLevel minLevel;
 
+  /// Logs a debug message.
   void debug(String message, {Map<String, dynamic>? metadata}) =>
       _log(LogLevel.debug, message, metadata: metadata);
 
+  /// Logs an info message.
   void info(String message, {Map<String, dynamic>? metadata}) =>
       _log(LogLevel.info, message, metadata: metadata);
 
+  /// Logs an error message, optionally attaching [error] / [stackTrace].
   void error(
     String message, {
     Map<String, dynamic>? metadata,

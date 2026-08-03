@@ -22,7 +22,7 @@ TraceEvent _event({
 TracerTrace _trace(String name, List<TraceEvent> events) => TracerTrace(
       sessionName: name,
       startedAt: DateTime(2026, 1, 1),
-      systemInfo: SystemInfo(
+      systemInfo: const SystemInfo(
         os: 'test',
         osVersion: '1.0',
         pid: 1,
@@ -62,7 +62,7 @@ void main() {
 
       expect(removed, hasLength(1));
       expect(removed.first.baselineEvent!.methodName, 'fail');
-      expect(diff.generateReceipt(), contains('[-] Baseline'));
+      expect(diff.generateReceipt(colorize: false), contains('[-] Baseline'));
     });
 
     test('detects added fixed-path events', () {
@@ -92,7 +92,7 @@ void main() {
 
       expect(added, hasLength(1));
       expect(added.first.targetEvent!.methodName, 'refreshToken');
-      expect(diff.generateReceipt(), contains('[+] Fixed'));
+      expect(diff.generateReceipt(colorize: false), contains('[+] Fixed'));
     });
 
     test('detects altered state payloads', () {
@@ -118,30 +118,61 @@ void main() {
       final modified = diff.entries.where((e) => e.type == DiffType.modified);
 
       expect(modified, hasLength(1));
-      expect(diff.generateReceipt(), contains('[!] Altered'));
-      expect(diff.generateReceipt(), contains('status: 500 → 200'));
-      expect(diff.generateReceipt(), contains('total: 0 → 99.99'));
+      final receipt = diff.generateReceipt(colorize: false);
+      expect(receipt, contains('[!] Altered'));
+      expect(receipt, contains('status: 500 → 200'));
+      expect(receipt, contains('total: 0 → 99.99'));
     });
 
     test('reports identical traces with no differences', () {
       final events = [
-        _event(
-          className: 'App',
-          method: 'run',
-          message: 'Started',
-        ),
+        _event(className: 'App', method: 'run', message: 'Started'),
       ];
 
       final diff = TracerDiff(
         baseline: _trace('a', events),
-        target: _trace('b', events),
+        target: _trace('b', List.of(events)),
       );
 
       expect(diff.entries, isEmpty);
-      expect(diff.generateReceipt(), contains('No differences detected'));
+      expect(
+        diff.generateReceipt(colorize: false),
+        contains('No differences detected'),
+      );
     });
 
-    test('saveReceipt writes report to disk', () async {
+    test('handles empty baseline and non-empty target', () {
+      final diff = TracerDiff(
+        baseline: _trace('empty', []),
+        target: _trace('fixed', [
+          _event(className: 'A', method: 'm', message: 'first'),
+        ]),
+      );
+
+      expect(diff.entries, hasLength(1));
+      expect(diff.entries.single.type, DiffType.added);
+    });
+
+    test('colorized receipt includes ANSI codes when forced on', () {
+      final diff = TracerDiff(
+        baseline: _trace('bug', [
+          _event(className: 'A', method: 'm', message: 'x'),
+        ]),
+        target: _trace('fixed', [
+          _event(className: 'A', method: 'm', message: 'x'),
+          _event(className: 'B', method: 'n', message: 'y'),
+        ]),
+      );
+
+      final colored = diff.generateReceipt(colorize: true);
+      final plain = diff.generateReceipt(colorize: false);
+
+      expect(colored, contains(AnsiColors.green));
+      expect(colored, contains(AnsiColors.reset));
+      expect(plain, isNot(contains('\x1B[')));
+    });
+
+    test('saveReceipt writes plain-text report to disk', () async {
       final baseline = _trace('bug', [
         _event(className: 'A', method: 'm', message: 'x'),
       ]);
@@ -155,10 +186,36 @@ void main() {
       final path = '${dir.path}/receipt.txt';
 
       await diff.saveReceipt(path);
+      final saved = File(path).readAsStringSync();
 
-      expect(File(path).readAsStringSync(), contains('TracerX Fix Receipt'));
-      expect(File(path).readAsStringSync(), contains('[+] Fixed'));
+      expect(saved, contains('TracerX Fix Receipt'));
+      expect(saved, contains('[+] Fixed'));
+      expect(saved, isNot(contains('\x1B[')));
       await dir.delete(recursive: true);
+    });
+
+    test('round-trips traces through JSON before diffing', () {
+      final original = _trace('bug', [
+        _event(
+          className: 'Cart',
+          method: 'checkout',
+          message: 'Submit',
+          metadata: {'status': 500},
+        ),
+      ]);
+
+      final restored = TracerTrace.fromJsonString(original.toJsonString());
+      final fixed = _trace('fixed', [
+        _event(
+          className: 'Cart',
+          method: 'checkout',
+          message: 'Submit',
+          metadata: {'status': 200},
+        ),
+      ]);
+
+      final diff = TracerDiff(baseline: restored, target: fixed);
+      expect(diff.entries.single.type, DiffType.modified);
     });
   });
 }

@@ -1,4 +1,12 @@
 .dart_tool/
 .packages
+.pub-cache/
+.pub/
 build/
+coverage/
 pubspec.lock
+*.iml
+.idea/
+.vscode/
+*.tracer.json
+.DS_Store

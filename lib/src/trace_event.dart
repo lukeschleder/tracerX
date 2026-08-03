@@ -1,7 +1,11 @@
 import 'log_level.dart';
 
-/// A single recorded event within a [TracerTrace] session.
+/// A single recorded checkpoint within a [TracerTrace] session.
+///
+/// [metadata] is the structured "state snapshot" compared by [TracerDiff]
+/// when two events share the same [sequenceSignature].
 class TraceEvent {
+  /// Creates an immutable trace event.
   const TraceEvent({
     required this.timestamp,
     required this.level,
@@ -22,15 +26,19 @@ class TraceEvent {
   final String? methodName;
   final String? file;
   final int? line;
+
+  /// Arbitrary JSON-serializable state captured at this checkpoint.
   final Map<String, dynamic>? metadata;
   final String? errorMessage;
   final String? stackTrace;
 
+  /// `file:line` when both are present, otherwise empty.
   String get location {
     if (file == null || line == null) return '';
     return '$file:$line';
   }
 
+  /// `Class.method`, falling back to method / class / `<unknown>`.
   String get qualifiedName {
     if (className != null && methodName != null) {
       return '$className.$methodName';
@@ -38,10 +46,13 @@ class TraceEvent {
     return methodName ?? className ?? '<unknown>';
   }
 
-  /// Signature for sequence alignment (excludes mutable metadata/state).
-  String get sequenceSignature => '$qualifiedName|${level.name}|$message';
+  /// Signature used for LCS sequence alignment.
+  ///
+  /// Uses level + message only so renamed methods in a fixed code path still
+  /// align with the buggy baseline. Metadata is compared separately after match.
+  String get sequenceSignature => '${level.name}|$message';
 
-  /// Full signature including metadata, used for exact-match checks.
+  /// Full signature including sorted metadata key/values.
   String get signature => '$sequenceSignature|${_metadataSignature()}';
 
   String _metadataSignature() {
@@ -50,6 +61,7 @@ class TraceEvent {
     return keys.map((k) => '$k=${metadata![k]}').join(',');
   }
 
+  /// JSON representation suitable for `.tracer.json` export.
   Map<String, dynamic> toJson() => {
         'timestamp': timestamp.toUtc().toIso8601String(),
         'level': level.toJson(),
@@ -63,6 +75,7 @@ class TraceEvent {
         if (stackTrace != null) 'stackTrace': stackTrace,
       };
 
+  /// Returns a copy with selective field overrides.
   TraceEvent copyWith({
     Map<String, dynamic>? metadata,
     String? message,
@@ -81,6 +94,7 @@ class TraceEvent {
         stackTrace: stackTrace,
       );
 
+  /// Restores an event from JSON produced by [toJson].
   factory TraceEvent.fromJson(Map<String, dynamic> json) => TraceEvent(
         timestamp: DateTime.parse(json['timestamp'] as String).toLocal(),
         level: LogLevel.fromJson(json['level'] as String),

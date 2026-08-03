@@ -1,6 +1,9 @@
 import 'caller_info.dart';
 
-/// Parses Dart stack traces to locate the first caller outside this package.
+/// Parses Dart [StackTrace] frames to locate the first caller outside tracer_x.
+///
+/// Frames from this package (and the public `info`/`debug`/`error` wrappers)
+/// are skipped so recorded locations point at *your* application code.
 class StackTraceParser {
   StackTraceParser._();
 
@@ -10,7 +13,7 @@ class StackTraceParser {
     r'^\#\d+\s+(.+?)\s+\((.+?):(\d+)(?::\d+)?\)',
   );
 
-  /// Returns caller file, line, class, and method of the first external frame.
+  /// Returns file, line, class, and method for the first external frame.
   static CallerInfo? parseCaller(StackTrace stackTrace) {
     for (final frame in stackTrace.toString().split('\n')) {
       if (_isInternalFrame(frame)) continue;

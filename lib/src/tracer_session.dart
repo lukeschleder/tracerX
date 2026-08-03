@@ -8,34 +8,64 @@ import 'system_info.dart';
 import 'trace_event.dart';
 import 'tracer_trace.dart';
 
-/// Records an ordered execution trace with exportable JSON output.
+/// Records an ordered execution trace for golden-master / bug-fix comparison.
+///
+/// Prefer creating sessions via [TracerX.startSession]. Each `info` / `debug` /
+/// `error` call captures:
+/// - wall-clock timestamp
+/// - severity
+/// - caller class, method, file, and line (via [StackTraceParser])
+/// - optional JSON-serializable [metadata] (your "state snapshot")
+///
+/// Call [end] when the flow finishes to flush [FileSink]s and obtain a
+/// [TracerTrace] suitable for [TracerDiff].
 class TracerSession {
+  /// Creates a named recording session.
+  ///
+  /// When [sinks] is omitted, a [ConsoleSink] is used so traces are visible
+  /// during interactive debugging.
   TracerSession(
     this.name, {
     List<LogSink>? sinks,
     this.minLevel = LogLevel.debug,
   })  : startedAt = DateTime.now(),
         systemInfo = SystemInfo.current(),
-        sinks = sinks ?? [ConsoleSink()];
+        sinks = List.unmodifiable(sinks ?? [ConsoleSink()]);
 
+  /// Human-readable session label (also used as default file name).
   final String name;
+
+  /// Wall-clock start time.
   final DateTime startedAt;
+
+  /// Host / runtime snapshot captured at construction.
   final SystemInfo systemInfo;
+
+  /// Fan-out destinations for each recorded event.
   final List<LogSink> sinks;
+
+  /// Events below this level are discarded.
   final LogLevel minLevel;
 
   final List<TraceEvent> _events = [];
   DateTime? _endedAt;
   bool _closed = false;
 
+  /// Immutable view of events recorded so far.
   List<TraceEvent> get events => List.unmodifiable(_events);
 
+  /// Whether [end] has already been called.
+  bool get isClosed => _closed;
+
+  /// Records a debug-level checkpoint.
   void debug(String message, {Map<String, dynamic>? metadata}) =>
       _log(LogLevel.debug, message, metadata: metadata);
 
+  /// Records an info-level checkpoint.
   void info(String message, {Map<String, dynamic>? metadata}) =>
       _log(LogLevel.info, message, metadata: metadata);
 
+  /// Records an error-level checkpoint, optionally with an [error] object.
   void error(
     String message, {
     Map<String, dynamic>? metadata,
@@ -72,7 +102,7 @@ class TracerSession {
       methodName: caller?.methodName,
       file: caller?.file,
       line: caller?.line,
-      metadata: metadata,
+      metadata: metadata == null ? null : Map<String, dynamic>.from(metadata),
       errorMessage: error?.toString(),
       stackTrace: stackTrace?.toString(),
     );
@@ -85,7 +115,7 @@ class TracerSession {
     }
   }
 
-  /// Exports the current session as a structured [TracerTrace].
+  /// Snapshot of the session as a structured [TracerTrace].
   TracerTrace export() => TracerTrace(
         sessionName: name,
         startedAt: startedAt,
@@ -94,7 +124,7 @@ class TracerSession {
         events: List.unmodifiable(_events),
       );
 
-  /// Closes the session, flushes file sinks, and returns the final trace.
+  /// Closes the session, persists any [FileSink]s, and returns the final trace.
   Future<TracerTrace> end() async {
     if (_closed) return export();
     _endedAt = DateTime.now();

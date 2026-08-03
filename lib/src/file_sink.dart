@@ -7,32 +7,40 @@ import 'log_sink.dart';
 import 'pii_masker.dart';
 import 'tracer_trace.dart';
 
-/// Asynchronously persists trace sessions to `.tracer.json` files on disk.
+/// Asynchronously persists a finished [TracerTrace] to a `.tracer.json` file.
+///
+/// [write] is a lightweight counter so sinks stay uniform across the
+/// [LogSink] interface; the authoritative event list always comes from
+/// [TracerSession.export] / [persist]. Disk I/O is chained so rapid
+/// `persist` calls never interleave writes.
 class FileSink implements LogSink {
   FileSink({
     required this.directory,
     this.fileName,
   });
 
+  /// Directory where `.tracer.json` files are written.
   final String directory;
+
+  /// Optional override for the output filename (defaults to `<session>.tracer.json`).
   final String? fileName;
 
-  final List<LogRecord> _buffer = [];
   Future<void> _writeChain = Future.value();
+  int _writeCount = 0;
   int _persistCount = 0;
 
-  /// Number of times [persist] has completed successfully.
-  int get persistCount => _persistCount;
+  /// Number of [write] calls observed during the session.
+  int get writeCount => _writeCount;
 
-  /// Buffered records awaiting persistence.
-  int get bufferedCount => _buffer.length;
+  /// Number of successful [persist] completions.
+  int get persistCount => _persistCount;
 
   @override
   void write(LogRecord record) {
-    _buffer.add(record);
+    _writeCount++;
   }
 
-  /// Serializes and writes the session trace without blocking the caller.
+  /// Masks PII and writes [trace] without blocking the caller’s event loop.
   Future<void> persist(TracerTrace trace) {
     final completer = Completer<void>();
     _writeChain = _writeChain.then((_) async {
@@ -55,7 +63,7 @@ class FileSink implements LogSink {
 
     final maskedTrace = _maskTrace(trace);
     final name = fileName ?? '${trace.sessionName}.tracer.json';
-    final path = '${dir.path}/$name';
+    final path = '${dir.path}${Platform.pathSeparator}$name';
     final json =
         const JsonEncoder.withIndent('  ').convert(maskedTrace.toJson());
 
@@ -84,7 +92,4 @@ class FileSink implements LogSink {
 
   /// Waits for all pending async writes to finish.
   Future<void> flush() => _writeChain;
-
-  /// Clears buffered records (testing helper).
-  void clearBuffer() => _buffer.clear();
 }

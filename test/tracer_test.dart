@@ -4,7 +4,10 @@ import 'package:tracer_x/tracer_x.dart';
 void main() {
   group('TracerSession', () {
     test('records events and exports TracerTrace JSON', () async {
-      final session = TracerX.startSession('unit-test');
+      final session = TracerX.startSession(
+        'unit-test',
+        sinks: [_CapturingSink()],
+      );
 
       session.info('hello', metadata: {'step': 1});
       session.debug('detail');
@@ -17,11 +20,26 @@ void main() {
       expect(trace.events.first.message, 'hello');
       expect(trace.events.first.metadata, {'step': 1});
       expect(trace.endedAt, isNotNull);
+      expect(session.isClosed, isTrue);
 
       final json = trace.toJson();
       expect(json['sessionName'], 'unit-test');
       expect(json['events'], hasLength(3));
       expect(json['systemInfo'], isA<Map<String, dynamic>>());
+    });
+
+    test('throws when logging after end', () async {
+      final session = TracerSession('closed', sinks: [_CapturingSink()]);
+      await session.end();
+      expect(() => session.info('too late'), throwsStateError);
+    });
+
+    test('copies metadata so callers cannot mutate recorded events', () {
+      final session = TracerSession('meta', sinks: [_CapturingSink()]);
+      final payload = <String, dynamic>{'status': 1};
+      session.info('step', metadata: payload);
+      payload['status'] = 999;
+      expect(session.events.single.metadata!['status'], 1);
     });
   });
 
@@ -29,7 +47,7 @@ void main() {
     test('routes log records to the configured sink', () {
       final records = <LogRecord>[];
       final log = Tracer(
-        sink: _CapturingSink(records),
+        sink: _ListSink(records),
         minLevel: LogLevel.debug,
       );
 
@@ -43,7 +61,7 @@ void main() {
     test('respects minLevel filter', () {
       final records = <LogRecord>[];
       final log = Tracer(
-        sink: _CapturingSink(records),
+        sink: _ListSink(records),
         minLevel: LogLevel.info,
       );
 
@@ -54,10 +72,23 @@ void main() {
       expect(records.single.message, 'visible');
     });
   });
+
+  group('ConsoleSink formatting', () {
+    test('exposes colorize flag for forced styling', () {
+      final sink = ConsoleSink(colorize: true);
+      expect(sink.colorize, isTrue);
+      expect(ConsoleSink(colorize: false).colorize, isFalse);
+    });
+  });
 }
 
 class _CapturingSink implements LogSink {
-  _CapturingSink(this.records);
+  @override
+  void write(LogRecord record) {}
+}
+
+class _ListSink implements LogSink {
+  _ListSink(this.records);
 
   final List<LogRecord> records;
 

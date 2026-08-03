@@ -1,23 +1,29 @@
 import 'dart:io';
 
+import 'ansi_colors.dart';
+import 'console_sink.dart';
 import 'trace_event.dart';
 import 'tracer_trace.dart';
 
 /// Classification of a difference between two trace sessions.
 enum DiffType {
+  /// Present in the baseline but missing from the target.
   removed,
+
+  /// Present in the target but missing from the baseline.
   added,
+
+  /// Same call signature, but metadata/state payload changed.
   modified,
-  reordered,
 }
 
-/// A single line in a trace comparison report.
+/// A single line-item in a [TracerDiff] comparison.
 class DiffEntry {
   const DiffEntry({
     required this.type,
+    required this.description,
     this.baselineEvent,
     this.targetEvent,
-    required this.description,
     this.baselineIndex,
     this.targetIndex,
   });
@@ -30,13 +36,21 @@ class DiffEntry {
   final int? targetIndex;
 }
 
-/// Compares two exported traces and generates a human-readable Fix Receipt.
+/// Compares two exported [TracerTrace]s and builds a human-readable Fix Receipt.
+///
+/// Alignment uses longest-common-subsequence (LCS) over each event's
+/// [TraceEvent.sequenceSignature] (qualified name + level + message).
+/// Matched events are then compared for metadata payload changes.
+///
+/// This is intentionally **not** zone-based instrumentation: callers record
+/// explicit checkpoints, which keeps traces deterministic and interviewable.
 class TracerDiff {
   TracerDiff({
     required this.baseline,
     required this.target,
   });
 
+  /// Loads both traces from `.tracer.json` files on disk.
   factory TracerDiff.fromFiles({
     required String baselinePath,
     required String targetPath,
@@ -46,11 +60,14 @@ class TracerDiff {
         target: TracerTrace.fromFile(targetPath),
       );
 
+  /// The "before" / buggy execution trace.
   final TracerTrace baseline;
+
+  /// The "after" / fixed execution trace.
   final TracerTrace target;
 
+  /// Computed differences (lazy, memoized).
   late final List<DiffEntry> entries = _computeDiff();
-  late final String receipt = _buildReceipt();
 
   List<DiffEntry> _computeDiff() {
     final baseEvents = baseline.events;
@@ -75,33 +92,15 @@ class TracerDiff {
       }
 
       for (var j = prevTarget; j < pair.targetIndex; j++) {
-        final reorderedFrom =
-            _findIndexBySignature(baseEvents, targetEvents[j]);
-        if (reorderedFrom != null &&
-            reorderedFrom >= prevBase &&
-            reorderedFrom != j) {
-          results.add(
-            DiffEntry(
-              type: DiffType.reordered,
-              baselineEvent: baseEvents[reorderedFrom],
-              targetEvent: targetEvents[j],
-              baselineIndex: reorderedFrom,
-              targetIndex: j,
-              description: '[~] Reordered: ${_eventLabel(targetEvents[j])} '
-                  'step ${reorderedFrom + 1} → ${j + 1}',
-            ),
-          );
-        } else {
-          results.add(
-            DiffEntry(
-              type: DiffType.added,
-              targetEvent: targetEvents[j],
-              targetIndex: j,
-              description:
-                  '[+] Fixed: ${_eventLabel(targetEvents[j])} at step ${j + 1}',
-            ),
-          );
-        }
+        results.add(
+          DiffEntry(
+            type: DiffType.added,
+            targetEvent: targetEvents[j],
+            targetIndex: j,
+            description:
+                '[+] Fixed: ${_eventLabel(targetEvents[j])} at step ${j + 1}',
+          ),
+        );
       }
 
       if (!_metadataEqual(
@@ -154,6 +153,7 @@ class TracerDiff {
     return results;
   }
 
+  /// Classic DP LCS returning index pairs into [baseEvents] / [targetEvents].
   List<({int baseIndex, int targetIndex})> _alignEvents(
     List<TraceEvent> baseEvents,
     List<TraceEvent> targetEvents,
@@ -191,18 +191,11 @@ class TracerDiff {
     return pairs;
   }
 
-  int? _findIndexBySignature(List<TraceEvent> events, TraceEvent target) {
-    for (var i = 0; i < events.length; i++) {
-      if (events[i].sequenceSignature == target.sequenceSignature) return i;
-    }
-    return null;
-  }
-
   bool _metadataEqual(
     Map<String, dynamic>? a,
     Map<String, dynamic>? b,
   ) {
-    if (a == null && b == null) return true;
+    if (identical(a, b)) return true;
     if (a == null || b == null) return false;
     if (a.length != b.length) return false;
     for (final key in a.keys) {
@@ -225,7 +218,7 @@ class TracerDiff {
       ...?target.metadata?.keys,
     };
 
-    for (final key in allKeys) {
+    for (final key in allKeys.toList()..sort()) {
       final baseVal = base.metadata?[key]?.toString() ?? '<missing>';
       final targetVal = target.metadata?[key]?.toString() ?? '<missing>';
       if (baseVal != targetVal) {
@@ -238,46 +231,97 @@ class TracerDiff {
     return '$header\n${changes.join('\n')}';
   }
 
-  String _buildReceipt() {
+  /// Human-readable Fix Receipt.
+  ///
+  /// When [colorize] is `null`, color is enabled if [ConsoleSink.detectsColorSupport]
+  /// is true. Saved files should use `colorize: false`.
+  String generateReceipt({bool? colorize}) {
+    final useColor = colorize ?? ConsoleSink.detectsColorSupport;
+    return _buildReceipt(useColor);
+  }
+
+  String _buildReceipt(bool colorize) {
     final buffer = StringBuffer()
-      ..writeln('=== TracerX Fix Receipt ===')
-      ..writeln('Baseline: ${baseline.sessionName}')
-      ..writeln('Target:   ${target.sessionName}')
       ..writeln(
-        'Events:   ${baseline.events.length} → ${target.events.length}',
+        AnsiColors.wrap(
+          '=== TracerX Fix Receipt ===',
+          AnsiColors.bold + AnsiColors.cyan,
+          enabled: colorize,
+        ),
+      )
+      ..writeln(
+        '${AnsiColors.wrap('Baseline:', AnsiColors.dim, enabled: colorize)} '
+        '${baseline.sessionName}',
+      )
+      ..writeln(
+        '${AnsiColors.wrap('Target:  ', AnsiColors.dim, enabled: colorize)} '
+        '${target.sessionName}',
+      )
+      ..writeln(
+        '${AnsiColors.wrap('Events:  ', AnsiColors.dim, enabled: colorize)} '
+        '${baseline.events.length} → ${target.events.length}',
       )
       ..writeln();
 
     if (entries.isEmpty) {
-      buffer.writeln('No differences detected. Traces are identical.');
+      buffer.writeln(
+        AnsiColors.wrap(
+          'No differences detected. Traces are identical.',
+          AnsiColors.green,
+          enabled: colorize,
+        ),
+      );
       return buffer.toString();
     }
 
     for (final entry in entries) {
-      buffer.writeln(entry.description);
+      buffer.writeln(_colorizeEntry(entry.description, entry.type, colorize));
       buffer.writeln();
     }
 
     final added = entries.where((e) => e.type == DiffType.added).length;
     final removed = entries.where((e) => e.type == DiffType.removed).length;
     final modified = entries.where((e) => e.type == DiffType.modified).length;
-    final reordered = entries.where((e) => e.type == DiffType.reordered).length;
 
     buffer
-      ..writeln('--- Summary ---')
-      ..writeln('Added:     $added')
-      ..writeln('Removed:   $removed')
-      ..writeln('Modified:  $modified')
-      ..writeln('Reordered: $reordered');
+      ..writeln(
+        AnsiColors.wrap(
+          '--- Summary ---',
+          AnsiColors.bold,
+          enabled: colorize,
+        ),
+      )
+      ..writeln(
+        '${AnsiColors.wrap('Added:   ', AnsiColors.green, enabled: colorize)}'
+        '$added',
+      )
+      ..writeln(
+        '${AnsiColors.wrap('Removed: ', AnsiColors.red, enabled: colorize)}'
+        '$removed',
+      )
+      ..writeln(
+        '${AnsiColors.wrap('Modified:', AnsiColors.yellow, enabled: colorize)} '
+        '$modified',
+      );
 
     return buffer.toString();
   }
 
-  /// Returns the human-readable Fix Receipt summary.
-  String generateReceipt() => receipt;
+  String _colorizeEntry(String description, DiffType type, bool colorize) {
+    final code = switch (type) {
+      DiffType.removed => AnsiColors.red,
+      DiffType.added => AnsiColors.green,
+      DiffType.modified => AnsiColors.yellow,
+    };
 
-  /// Writes the Fix Receipt report to [outputPath].
+    final lines = description.split('\n');
+    return lines
+        .map((line) => AnsiColors.wrap(line, code, enabled: colorize))
+        .join('\n');
+  }
+
+  /// Writes a plain-text (no ANSI) Fix Receipt to [outputPath].
   Future<void> saveReceipt(String outputPath) async {
-    await File(outputPath).writeAsString(receipt);
+    await File(outputPath).writeAsString(generateReceipt(colorize: false));
   }
 }
