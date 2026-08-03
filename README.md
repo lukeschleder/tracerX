@@ -27,7 +27,8 @@ Add the package to your `pubspec.yaml`:
 ```yaml
 dependencies:
   tracer_x:
-    path: ../tracerX   # or your git / pub URL
+    git:
+      url: https://github.com/lukeschleder/tracerX.git
 ```
 
 Then:
