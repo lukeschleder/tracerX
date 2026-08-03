@@ -13,11 +13,19 @@ import 'tracer_trace.dart';
 /// [LogSink] interface; the authoritative event list always comes from
 /// [TracerSession.export] / [persist]. Disk I/O is chained so rapid
 /// `persist` calls never interleave writes.
+///
+/// When [filterTag] / [filterTags] is set, only matching events are counted
+/// and written to disk.
 class FileSink implements LogSink {
   FileSink({
     required this.directory,
     this.fileName,
-  });
+    String? filterTag,
+    List<String>? filterTags,
+  }) : allowedTags = resolveTagFilters(
+          filterTag: filterTag,
+          filterTags: filterTags,
+        );
 
   /// Directory where `.tracer.json` files are written.
   final String directory;
@@ -25,11 +33,14 @@ class FileSink implements LogSink {
   /// Optional override for the output filename (defaults to `<session>.tracer.json`).
   final String? fileName;
 
+  /// Effective tag allow-list, or `null` when every tag is accepted.
+  final Set<String>? allowedTags;
+
   Future<void> _writeChain = Future.value();
   int _writeCount = 0;
   int _persistCount = 0;
 
-  /// Number of [write] calls observed during the session.
+  /// Number of [write] calls that passed the tag filter.
   int get writeCount => _writeCount;
 
   /// Number of successful [persist] completions.
@@ -37,10 +48,13 @@ class FileSink implements LogSink {
 
   @override
   void write(LogRecord record) {
+    if (!tagMatchesFilter(record.tag, allowedTags)) return;
     _writeCount++;
   }
 
   /// Masks PII and writes [trace] without blocking the caller’s event loop.
+  ///
+  /// Events that fail the tag filter are omitted from the persisted file.
   Future<void> persist(TracerTrace trace) {
     final completer = Completer<void>();
     _writeChain = _writeChain.then((_) async {
@@ -61,13 +75,28 @@ class FileSink implements LogSink {
       await dir.create(recursive: true);
     }
 
-    final maskedTrace = _maskTrace(trace);
+    final filtered = _filterTrace(trace);
+    final maskedTrace = _maskTrace(filtered);
     final name = fileName ?? '${trace.sessionName}.tracer.json';
     final path = '${dir.path}${Platform.pathSeparator}$name';
     final json =
         const JsonEncoder.withIndent('  ').convert(maskedTrace.toJson());
 
     await File(path).writeAsString(json);
+  }
+
+  TracerTrace _filterTrace(TracerTrace trace) {
+    if (allowedTags == null) return trace;
+    final events = trace.events
+        .where((event) => tagMatchesFilter(event.tag, allowedTags))
+        .toList();
+    return TracerTrace(
+      sessionName: trace.sessionName,
+      startedAt: trace.startedAt,
+      endedAt: trace.endedAt,
+      systemInfo: trace.systemInfo,
+      events: events,
+    );
   }
 
   TracerTrace _maskTrace(TracerTrace trace) {

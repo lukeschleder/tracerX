@@ -10,6 +10,7 @@ class TraceEvent {
     required this.timestamp,
     required this.level,
     required this.message,
+    this.tag,
     this.className,
     this.methodName,
     this.file,
@@ -22,6 +23,12 @@ class TraceEvent {
   final DateTime timestamp;
   final LogLevel level;
   final String message;
+
+  /// Optional label used for sink filtering and console display.
+  ///
+  /// Defaults to the session name when recorded via [TracerSession].
+  final String? tag;
+
   final String? className;
   final String? methodName;
   final String? file;
@@ -66,6 +73,7 @@ class TraceEvent {
         'timestamp': timestamp.toUtc().toIso8601String(),
         'level': level.toJson(),
         'message': message,
+        if (tag != null) 'tag': tag,
         if (className != null) 'className': className,
         if (methodName != null) 'methodName': methodName,
         if (file != null) 'file': file,
@@ -80,11 +88,13 @@ class TraceEvent {
     Map<String, dynamic>? metadata,
     String? message,
     String? errorMessage,
+    String? tag,
   }) =>
       TraceEvent(
         timestamp: timestamp,
         level: level,
         message: message ?? this.message,
+        tag: tag ?? this.tag,
         className: className,
         methodName: methodName,
         file: file,
@@ -99,6 +109,7 @@ class TraceEvent {
         timestamp: DateTime.parse(json['timestamp'] as String).toLocal(),
         level: LogLevel.fromJson(json['level'] as String),
         message: json['message'] as String,
+        tag: json['tag'] as String?,
         className: json['className'] as String?,
         methodName: json['methodName'] as String?,
         file: json['file'] as String?,

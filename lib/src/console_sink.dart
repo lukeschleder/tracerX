@@ -10,11 +10,36 @@ import 'pii_masker.dart';
 ///
 /// Color is enabled automatically when writing to a TTY and `NO_COLOR` is
 /// unset. Pass [colorize] to force on/off (useful in tests and CI).
+///
+/// Optionally prepend [prefix] to every line, and skip records whose tag is
+/// outside [filterTag] / [filterTags].
 class ConsoleSink implements LogSink {
-  ConsoleSink({bool? colorize}) : colorize = colorize ?? detectsColorSupport;
+  ConsoleSink({
+    bool? colorize,
+    this.prefix,
+    String? filterTag,
+    List<String>? filterTags,
+    IOSink? out,
+    IOSink? err,
+  })  : colorize = colorize ?? detectsColorSupport,
+        allowedTags = resolveTagFilters(
+          filterTag: filterTag,
+          filterTags: filterTags,
+        ),
+        _out = out,
+        _err = err;
 
   /// Whether ANSI styling is applied to emitted lines.
   final bool colorize;
+
+  /// Optional string prepended to every console line (for example `tracer: `).
+  final String? prefix;
+
+  /// Effective tag allow-list, or `null` when every tag is accepted.
+  final Set<String>? allowedTags;
+
+  final IOSink? _out;
+  final IOSink? _err;
 
   /// True when stdout is a terminal and `NO_COLOR` is not set.
   static bool get detectsColorSupport {
@@ -28,6 +53,41 @@ class ConsoleSink implements LogSink {
 
   @override
   void write(LogRecord record) {
+    if (!tagMatchesFilter(record.tag, allowedTags)) return;
+
+    final line = formatLine(record);
+    final output =
+        record.level == LogLevel.error ? (_err ?? stderr) : (_out ?? stdout);
+    output.writeln(line);
+
+    if (record.error != null) {
+      output.writeln(
+        _withPrefix(
+          AnsiColors.wrap(
+            PiiMasker.mask(record.error.toString()) as String,
+            AnsiColors.red,
+            enabled: colorize,
+          ),
+        ),
+      );
+    }
+    if (record.stackTrace != null) {
+      output.writeln(
+        _withPrefix(
+          AnsiColors.wrap(
+            record.stackTrace.toString(),
+            AnsiColors.dim,
+            enabled: colorize,
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Formats a single log line (including optional [prefix]).
+  ///
+  /// Exposed for unit tests and custom rendering without writing to a terminal.
+  String formatLine(LogRecord record) {
     final message = PiiMasker.mask(record.message) as String;
     final metadata = PiiMasker.maskMetadata(record.metadata);
     final levelStyle = _levelStyle(record.level);
@@ -79,28 +139,12 @@ class ConsoleSink implements LogSink {
     final metaSuffix =
         metadata != null && metadata.isNotEmpty ? ' $metadata' : '';
 
-    final line = '${parts.join(' ')} │ $body$metaSuffix';
-    final output = record.level == LogLevel.error ? stderr : stdout;
-    output.writeln(line);
+    return _withPrefix('${parts.join(' ')} │ $body$metaSuffix');
+  }
 
-    if (record.error != null) {
-      output.writeln(
-        AnsiColors.wrap(
-          PiiMasker.mask(record.error.toString()) as String,
-          AnsiColors.red,
-          enabled: colorize,
-        ),
-      );
-    }
-    if (record.stackTrace != null) {
-      output.writeln(
-        AnsiColors.wrap(
-          record.stackTrace.toString(),
-          AnsiColors.dim,
-          enabled: colorize,
-        ),
-      );
-    }
+  String _withPrefix(String line) {
+    if (prefix == null || prefix!.isEmpty) return line;
+    return '$prefix$line';
   }
 
   String _formatTimestamp(DateTime time) {

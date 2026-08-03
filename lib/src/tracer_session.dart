@@ -14,6 +14,7 @@ import 'tracer_trace.dart';
 /// `error` call captures:
 /// - wall-clock timestamp
 /// - severity
+/// - optional [tag] (defaults to the session [name])
 /// - caller class, method, file, and line (via [StackTraceParser])
 /// - optional JSON-serializable [metadata] (your "state snapshot")
 ///
@@ -32,7 +33,7 @@ class TracerSession {
         systemInfo = SystemInfo.current(),
         sinks = List.unmodifiable(sinks ?? [ConsoleSink()]);
 
-  /// Human-readable session label (also used as default file name).
+  /// Human-readable session label (also used as default file name / tag).
   final String name;
 
   /// Wall-clock start time.
@@ -58,17 +59,26 @@ class TracerSession {
   bool get isClosed => _closed;
 
   /// Records a debug-level checkpoint.
-  void debug(String message, {Map<String, dynamic>? metadata}) =>
-      _log(LogLevel.debug, message, metadata: metadata);
+  void debug(
+    String message, {
+    Map<String, dynamic>? metadata,
+    String? tag,
+  }) =>
+      _log(LogLevel.debug, message, metadata: metadata, tag: tag);
 
   /// Records an info-level checkpoint.
-  void info(String message, {Map<String, dynamic>? metadata}) =>
-      _log(LogLevel.info, message, metadata: metadata);
+  void info(
+    String message, {
+    Map<String, dynamic>? metadata,
+    String? tag,
+  }) =>
+      _log(LogLevel.info, message, metadata: metadata, tag: tag);
 
   /// Records an error-level checkpoint, optionally with an [error] object.
   void error(
     String message, {
     Map<String, dynamic>? metadata,
+    String? tag,
     Object? error,
     StackTrace? stackTrace,
   }) =>
@@ -76,6 +86,7 @@ class TracerSession {
         LogLevel.error,
         message,
         metadata: metadata,
+        tag: tag,
         error: error,
         stackTrace: stackTrace ?? (error != null ? StackTrace.current : null),
       );
@@ -84,6 +95,7 @@ class TracerSession {
     LogLevel level,
     String message, {
     Map<String, dynamic>? metadata,
+    String? tag,
     Object? error,
     StackTrace? stackTrace,
   }) {
@@ -93,11 +105,13 @@ class TracerSession {
     if (level.index < minLevel.index) return;
 
     final caller = StackTraceParser.parseCaller(StackTrace.current);
+    final eventTag = tag ?? name;
 
     final event = TraceEvent(
       timestamp: DateTime.now(),
       level: level,
       message: message,
+      tag: eventTag,
       className: caller?.className,
       methodName: caller?.methodName,
       file: caller?.file,
@@ -109,7 +123,7 @@ class TracerSession {
 
     _events.add(event);
 
-    final record = LogRecord.fromTraceEvent(event, tag: name);
+    final record = LogRecord.fromTraceEvent(event);
     for (final sink in sinks) {
       sink.write(record);
     }

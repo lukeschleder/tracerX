@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Optional `prefix` on `ConsoleSink` for branded console lines
+- Optional `tag` on `TraceEvent` (defaults to session name; overridable per call)
+- `filterTag` / `filterTags` on `ConsoleSink` and `FileSink`
+
 ## 0.2.1
 
 - Colorized Fix Receipts (`TracerDiff.generateReceipt`)

@@ -45,12 +45,14 @@ class LogRecord {
   }
 
   /// Adapts a recorded [TraceEvent] into a sink-facing [LogRecord].
+  ///
+  /// Uses [event.tag], falling back to [tag] when the event has none.
   factory LogRecord.fromTraceEvent(TraceEvent event, {String? tag}) =>
       LogRecord(
         level: event.level,
         message: event.message,
         timestamp: event.timestamp,
-        tag: tag,
+        tag: event.tag ?? tag,
         className: event.className,
         methodName: event.methodName,
         file: event.file,
