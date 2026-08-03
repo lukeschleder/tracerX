@@ -28,7 +28,9 @@ deterministic comparison problem instead of a scroll-through-the-console problem
 ```yaml
 dependencies:
   tracer_x:
-    path: ../tracer_x   # or your git / pub URL
+    git:
+      url: https://github.com/lukeschleder/tracerX.git
+      ref: feature/tracerx-initial-impl 
 ```
 
 ```bash

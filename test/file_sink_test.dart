@@ -38,8 +38,8 @@ void main() {
       expect(file.existsSync(), isTrue);
 
       final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-      final metadata = (json['events'] as List).first['metadata']
-          as Map<String, dynamic>;
+      final metadata =
+          (json['events'] as List).first['metadata'] as Map<String, dynamic>;
 
       expect(metadata['email'], PiiMasker.redacted);
       expect(metadata['password'], PiiMasker.redacted);
